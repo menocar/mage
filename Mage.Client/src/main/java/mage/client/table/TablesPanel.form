@@ -57,7 +57,7 @@
                   <Component id="btnNewTournament" min="-2" max="-2" attributes="0"/>
                   <EmptySpace max="-2" attributes="0"/>
                   <Group type="103" groupAlignment="0" max="-2" attributes="0">
-                      <Component id="filterBar1" max="32767" attributes="0"/>
+                      <Component id="filterBar1" pref="540" max="32767" attributes="0"/>
                       <Component id="filterBar2" pref="468" max="32767" attributes="0"/>
                   </Group>
                   <EmptySpace max="-2" attributes="0"/>
