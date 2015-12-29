@@ -1245,9 +1245,10 @@ class TableTableModel extends AbstractTableModel {
 
     private TableView[] tables = new TableView[0];
     private static final DateFormat timeFormatter = new SimpleDateFormat("HH:mm:ss");
-    ;
 
     private Session session;
+
+    private static final Logger logger = Logger.getLogger(TableTableModel.class);
 
     public void loadData(Collection<TableView> tables) throws MageRemoteException {
         this.tables = tables.toArray(new TableView[0]);
@@ -1454,6 +1455,7 @@ class MatchesTableModel extends AbstractTableModel {
     private final String[] columnNames = new String[]{"Deck Type", "Players", "Game Type", "Result", "Start Time", "End Time", "Action"};
     private MatchView[] matches = new MatchView[0];
     private static final DateFormat timeFormatter = SimpleDateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT);
+    private static final Logger logger = Logger.getLogger(MatchesTableModel.class);
 
     public void loadData(Collection<MatchView> matches) throws MageRemoteException {
         this.matches = matches.toArray(new MatchView[0]);

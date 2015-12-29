@@ -38,9 +38,12 @@ import java.awt.event.KeyEvent;
 import java.util.UUID;
 import javax.swing.JTextField;
 import mage.client.MageFrame;
+import mage.client.record.Player;
+import mage.client.record.PlayerRepository;
 import mage.remote.Session;
 import mage.view.ChatMessage.MessageColor;
 import mage.view.ChatMessage.MessageType;
+import org.apache.log4j.Logger;
 import org.mage.card.arcane.ManaSymbols;
 
 /**
@@ -110,6 +113,8 @@ public class ChatPanelBasic extends javax.swing.JPanel {
         DEFAULT, GAME, TABLES, TOURNAMENT
     }
     protected boolean startMessageDone = false;
+
+    private static final Logger logger = Logger.getLogger(ChatPanelBasic.class);
 
     /**
      *
@@ -209,8 +214,29 @@ public class ChatPanelBasic extends javax.swing.JPanel {
         }
         text.append(getColoredText(textColor, ManaSymbols.replaceSymbolsWithHTML(message, ManaSymbols.Type.PAY)));
         this.txtConversation.append(text.toString());
+
+        processNLCMessage(username, message);
     }
 
+    private void processNLCMessage(String username, String message) {
+        String prefix = "Whisper from ";
+        if (username == null || message == null || !username.startsWith(prefix)) {
+            return;
+        }
+        String actualUsername = username.replaceFirst(prefix, "");
+        Player player = PlayerRepository.instance.getPlayer(actualUsername);
+        if (player == null) {
+            session.sendWhisperChatMessage(chatId, actualUsername, "You are currently not in the group. Please finish a draft successfully, then the bot will whisper you the info.");
+            logger.info("Whispered by " + actualUsername + " who is not in the group");
+        } else if (!message.equals(player.getToken())) {
+            session.sendWhisperChatMessage(chatId, actualUsername, "Wrong token value. Please finish another draft successfully, then the bot will whisper you the token again.");
+            logger.info("Whispered by " + actualUsername + " with a wrong token " + message + ", expected " + player.getToken());
+        } else {
+            session.sendWhisperChatMessage(chatId, actualUsername, "Use this to create or to join draft matches: " + MageFrame.getNLCPassword());
+            logger.info("Password is successfully sent to " + actualUsername);
+        }
+    }
+    
     protected String getColoredText(String color, String text) {
         StringBuilder sb = new StringBuilder();
         sb.append("<font color='");

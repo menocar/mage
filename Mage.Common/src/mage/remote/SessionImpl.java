@@ -873,6 +873,10 @@ public class SessionImpl implements Session {
         return false;
     }
 
+    public boolean sendWhisperChatMessage(UUID chatId, String username, String message) {
+        return sendChatMessage(chatId, "\\whisper " + username + " " + message);
+    }
+
     @Override
     public boolean sendBroadcastMessage(String message) {
         try {
