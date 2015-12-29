@@ -45,5 +45,4 @@ import mage.remote.interfaces.Testable;
  * @author noxx
  */
 public interface Session extends ClientData, Connect, GamePlay, GameTypes, ServerState, ChatSession, Feedback, PlayerActions, Replays, Testable {
-
 }

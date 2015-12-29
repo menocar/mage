@@ -48,5 +48,7 @@ public interface ChatSession {
 
     boolean sendChatMessage(UUID chatId, String message);
 
+    boolean sendWhisperChatMessage(UUID chatId, String username, String message);
+
     boolean sendBroadcastMessage(String message);
 }

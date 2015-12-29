@@ -131,6 +131,11 @@
             <artifactId>tritonus_share</artifactId>
             <version>0.3.6</version>
         </dependency>
+        <dependency>
+            <groupId>com.google.protobuf</groupId>
+            <artifactId>protobuf-java</artifactId>
+            <version>3.0.0-beta-1</version>
+        </dependency>
     </dependencies>
     
     <!-- to get the reference to local repository with com\googlecode\jspf\jspf-core\0.9.1\ -->

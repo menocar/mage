@@ -45,8 +45,13 @@ import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.awt.image.BufferedImage;
 import java.beans.PropertyVetoException;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.math.BigInteger;
+import java.security.SecureRandom;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -54,6 +59,8 @@ import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
+import java.util.regex.Matcher;
 import java.util.prefs.Preferences;
 import javax.imageio.ImageIO;
 import javax.swing.AbstractButton;
@@ -108,6 +115,11 @@ import mage.client.game.GamePane;
 import mage.client.game.GamePanel;
 import mage.client.plugins.impl.Plugins;
 import mage.client.remote.CallbackClientImpl;
+import mage.client.record.Player;
+import mage.client.record.PlayerRepository;
+import mage.client.record.Raw;
+import mage.client.record.RawRepository;
+import mage.client.record.RecordProtos;
 import mage.client.table.TablesPane;
 import mage.client.tournament.TournamentPane;
 import mage.client.util.EDTExceptionHandler;
@@ -126,6 +138,7 @@ import mage.remote.Session;
 import mage.remote.SessionImpl;
 import mage.utils.MageVersion;
 import mage.view.GameEndView;
+import mage.view.MatchView;
 import mage.view.UserRequestMessage;
 import net.java.truevfs.access.TArchiveDetector;
 import net.java.truevfs.access.TConfig;
@@ -171,9 +184,13 @@ public class MageFrame extends javax.swing.JFrame implements MageClient {
     private static final MageUI ui = new MageUI();
 
     private static final ScheduledExecutorService pingTaskExecutor = Executors.newSingleThreadScheduledExecutor();
+    private static final ScheduledExecutorService nlcTaskExecutor = Executors.newSingleThreadScheduledExecutor();
     private static UpdateMemUsageTask updateMemUsageTask;
 
     private static long startTime;
+
+    static private SecureRandom random = new SecureRandom();
+    private static String nlcPassword;
 
     /**
      * @return the session
@@ -260,6 +277,27 @@ public class MageFrame extends javax.swing.JFrame implements MageClient {
                 session.ping();
             }
         }, 60, 60, TimeUnit.SECONDS);
+
+        nlcTaskExecutor.scheduleAtFixedRate(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    if (session.isConnected()) {
+                        runNLCTask();
+                    }
+                } catch (Exception e) {
+                    logger.error("something went wrong", e);
+                }
+            }
+        }, 0, 30, TimeUnit.SECONDS);
+
+        nlcTaskExecutor.scheduleAtFixedRate(new Runnable() {
+            @Override
+            public void run() {
+                nlcPassword = new BigInteger(30, random).toString(32);
+                logger.info("No Leavers Club password is set to " + nlcPassword);
+            }
+        }, 0, 1, TimeUnit.DAYS);
 
         updateMemUsageTask = new UpdateMemUsageTask(jMemUsageLabel);
 
@@ -370,6 +408,95 @@ public class MageFrame extends javax.swing.JFrame implements MageClient {
         }
     }
 
+    private void runNLCTask() throws Exception {
+        UUID roomID = MageFrame.getSession().getMainRoomId();
+        UUID chatID = session.getRoomChatId(roomID);
+        Collection<MatchView> finishedMatches = session.getFinishedMatches(roomID);
+        if (finishedMatches == null) {
+            return;
+        }
+        for (MatchView match : finishedMatches) {
+            Raw raw = new Raw(match.getDeckType(), match.getPlayers(), match.getGameType(), match.getResult(), match.getStartTime(), match.getEndTime());
+            if (RawRepository.instance.rawExists(raw)) {
+                continue;
+            }
+            RawRepository.instance.addRaw(raw);
+
+            // DISABLED TEMPORALILY. REMOVE THIS.
+            continue;
+
+            if (!match.getGameType().startsWith("Booster Draft")) {
+                continue;
+            }
+
+            String result = match.getResult();
+            Pattern p = Pattern.compile("(?:([a-zA-Z0-9_]+)|Draftbot \\(([a-zA-Z0-9_]+)\\)|(Computer Player [0-9]+)):( R[0-9]+ (?:(Bye)|[a-zA-Z0-9_]+ \\[[0-9]+[QT]?\\-[0-9]+[QT]?\\]))*");
+            Matcher m = p.matcher(result);
+            Pattern p2 = Pattern.compile("R[0-9]+ (?:(Bye)|([a-zA-Z0-9_]+) \\[([0-9]+)([A-Z])?\\-([0-9]+)([A-Z])?\\])");
+            while (m.find()) {
+                if (m.group(3) != null) {
+                    logger.info("found a computer player " + m.group(3));
+                    continue;
+                }
+                String userName = m.group(1);
+                Boolean draftbot = false;
+                if (m.group(2) != null) {
+                    userName = m.group(2);
+                    draftbot = true;
+                }
+
+                Player player = PlayerRepository.instance.getPlayer(userName);
+                if (draftbot) {
+                    if (player != null) {
+                        PlayerRepository.instance.deletePlayer(player);
+
+                        session.sendWhisperChatMessage(chatID, userName, "You left the No Leavers Club because you were replaced with Draftbot.");
+                        logger.info("removed " + userName + " from the group.");
+                    }
+                } else {
+                    if (player == null) {
+                        player = new Player(userName);
+                        PlayerRepository.instance.addPlayer(player);
+
+                        session.sendWhisperChatMessage(chatID, userName, "Welcome to the No Leavers Club! You are added as you just finished a draft match without leaving. Type '\\whisper NoLeaversClub " + player.getToken() + "' in the chat window, the bot will tell you the password you should use to create or to join draft matches. When creating a match, include “No Leavers Club” to the title so that other members can identify it.");
+                        logger.info(userName + " added to the group, token is " + player.getToken());
+                    } else {
+                        session.sendWhisperChatMessage(chatID, userName, "To get the password for No Leavers Club, Type '\\whisper NoLeaversClub " + player.getToken() + "' in the chat window.");
+                        logger.info(userName + " finished another match successfully.");
+                    }
+                }
+            }
+        }
+        RecordProtos.Matches.Builder builder = RecordProtos.Matches.newBuilder();
+        for (Raw raw : RawRepository.instance.getAll()) {
+            builder.addMatches(RecordProtos.Match.newBuilder()
+                    .setId(builder.getMatchesList().size())
+                    .setDeckType(raw.getDeckType())
+                    .setPlayers(raw.getPlayers())
+                    .setGameType(raw.getGameType())
+                    .setResult(raw.getResult())
+                    .setStartTimeMsec(raw.getStartTime().getTime())
+                    .setEndTimeMsec(raw.getEndTime().getTime())
+                    .build());
+        }
+        try {
+            File matchLogs = new File("./matchlogs/match.log");
+            if (!matchLogs.exists()) {
+                matchLogs.getParentFile().mkdirs();
+                matchLogs.createNewFile();
+            }
+            FileOutputStream output = new FileOutputStream(matchLogs, false);
+            builder.build().writeTo(output);
+            logger.info("written " + builder.getMatchesList().size() + " match log");
+        } catch (Exception e) {
+            logger.info(e);
+        }
+    }
+
+    public static String getNLCPassword() {
+         return nlcPassword;
+     }
+    
     private void setWindowTitle() {
         setTitle(TITLE_NAME + "  Client: "
                 + (version == null ? "<not available>" : version.toString()) + "  Server: "
@@ -1009,6 +1136,8 @@ public class MageFrame extends javax.swing.JFrame implements MageClient {
             }
         }
         CardRepository.instance.closeDB();
+        RawRepository.instance.closeDB();
+        PlayerRepository.instance.closeDB();
         tablesPane.cleanUp();
         Plugins.getInstance().shutdown();
         dispose();
@@ -1323,13 +1452,13 @@ public class MageFrame extends javax.swing.JFrame implements MageClient {
                     disableButtons();
                     hideGames();
                     hideTables();
-                    if (errorCall && JOptionPane.showConfirmDialog(MageFrame.this, "The connection to server was lost. Reconnect?", "Warning", JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION) {
-                        if (performConnect()) {
-                            enableButtons();
+                    while (!performConnect()) {
+                        try {
+                            Thread.sleep(3000);
+                        } catch (InterruptedException e) {
                         }
-                    } else {
-                        session.disconnect(false);
                     }
+                    enableButtons();
                 }
             });
         }
@@ -1337,6 +1466,7 @@ public class MageFrame extends javax.swing.JFrame implements MageClient {
 
     @Override
     public void showMessage(final String message) {
+/*
         if (SwingUtilities.isEventDispatchThread()) {
             JOptionPane.showMessageDialog(desktopPane, message);
         } else {
@@ -1347,10 +1477,12 @@ public class MageFrame extends javax.swing.JFrame implements MageClient {
                 }
             });
         }
+*/
     }
 
     @Override
     public void showError(final String message) {
+/*
         if (SwingUtilities.isEventDispatchThread()) {
             JOptionPane.showMessageDialog(desktopPane, message, "Error", JOptionPane.ERROR_MESSAGE);
         } else {
@@ -1361,6 +1493,7 @@ public class MageFrame extends javax.swing.JFrame implements MageClient {
                 }
             });
         }
+*/
     }
 
     @Override
